@@ -44,94 +44,62 @@ def page_lines(doc: fitz.Document, page_index: int) -> List[str]:
 
 
 # =========================
-# TOC extraction
+# TOC extraction (Scan)
 # =========================
 
-def find_toc_page_index(doc: fitz.Document) -> int:
-  for i in range(doc.page_count):
-    txt = doc[i].get_text("text") or ""
-    if re.search(r"\bTartalom\b", txt):
-      return i
-  raise RuntimeError("Could not find a page containing 'Tartalom'.")
-
-
-def extract_toc_titles(doc: fitz.Document) -> List[str]:
-  toc_i = find_toc_page_index(doc)
-  lines = page_lines(doc, toc_i)
-
-  titles: List[str] = []
-  in_toc = False
-
-  for l in lines:
-    if re.fullmatch(r"Tartalom", l):
-      in_toc = True
-      continue
-    if not in_toc:
-      continue
-    if re.fullmatch(r"\d+", l):
-      continue
-    titles.append(l)
-
-  titles = [t for t in titles if t and t.lower() != "tartalom"]
-  if not titles:
-    raise RuntimeError("Extracted 0 TOC titles from 'Tartalom' page.")
-  return titles
-
-
-# =========================
-# Chapter detection
-# =========================
-
-def is_chapter_title_page(doc: fitz.Document, page_index: int, title: str) -> bool:
-  lines = [
-    l.strip()
-    for l in (doc[page_index].get_text("text") or "").splitlines()
-    if l.strip()
-  ]
-  return len(lines) <= 3 and any(l == title for l in lines)
-
-
-# =========================
-# Title → page resolution
-# =========================
-
-def find_title_occurrence_ordered(
-  doc: fitz.Document,
-  titles: List[str],
-  start_search_page_index: int = 0
-) -> List[TocItem]:
-
+def build_toc_from_scan(doc: fitz.Document) -> List[TocItem]:
   items: List[TocItem] = []
-  cursor_page = start_search_page_index
 
-  for t in titles:
-    pattern = re.escape(t)
-    found_page: Optional[int] = None
+  # Start scanning from page index 2 (skipping 0=Cover, 1=Impresszum)
+  start_page = 2
 
-    for p in range(cursor_page, doc.page_count):
-      txt = doc[p].get_text("text") or ""
-      if re.search(rf"(?m)^\s*{pattern}\s*$", txt):
-        found_page = p
-        break
-      if re.search(pattern, txt):
-        found_page = p
-        break
+  for p in range(start_page, doc.page_count):
+    page = doc[p]
 
-    if found_page is None:
-      raise RuntimeError(f"Could not find title in PDF: {t!r}")
+    # Get text blocks to analyze font size and content
+    blocks = page.get_text("dict")["blocks"]
+    text_blocks = [b for b in blocks if b["type"] == 0]
 
-    level = 0 if is_chapter_title_page(doc, found_page, t) else 1
+    if not text_blocks:
+      continue
 
-    items.append(
-      TocItem(
-        title=t,
-        orig_page_1based=found_page + 1,
+    first_block = text_blocks[0]
+    if not first_block["lines"]:
+      continue
+
+    first_line = first_block["lines"][0]
+    if not first_line["spans"]:
+      continue
+
+    # Analyze the first span of the first line
+    span = first_line["spans"][0]
+    size = span["size"]
+
+    # Reconstruct the full title text
+    raw_text = "".join(s["text"] for s in first_line["spans"])
+    title = normalize_line(raw_text)
+
+    if not title:
+      continue
+
+    # Classification based on font size
+    # Chapter Title: ~26pt (Level 0)
+    # Poem Title: ~18.75pt (Level 1)
+    # Body Text: ~12.5pt (Ignore)
+
+    level = -1
+    if size > 24:
+      level = 0
+    elif 16 < size < 24:
+      level = 1
+
+    if level != -1:
+      items.append(TocItem(
+        title=title,
+        orig_page_1based=p + 1,
         final_page_1based=-1,
         level=level,
-      )
-    )
-
-    cursor_page = found_page + 1
+      ))
 
   return items
 

@@ -4,8 +4,7 @@ import tempfile
 import fitz
 
 from toc_core import (
-  extract_toc_titles,
-  find_title_occurrence_ordered,
+  build_toc_from_scan,
   render_toc_pdf,
 )
 
@@ -17,13 +16,13 @@ def add_toc_to_pdf(input_pdf: str, output_pdf: str):
 
   doc = fitz.open(input_pdf)
 
-  # extract TOC items
-  toc_titles = extract_toc_titles(doc)
-  items = find_title_occurrence_ordered(doc, toc_titles, start_search_page_index=2)
+  # extract TOC items by scanning
+  items = build_toc_from_scan(doc)
 
   # TOC appended → page numbers unchanged
   for it in items:
     it.final_page_1based = it.orig_page_1based
+
 
   # match original page size exactly
   rect = doc[0].rect

@@ -4,8 +4,7 @@ import tempfile
 import os
 
 from toc_core import (
-  extract_toc_titles,
-  find_title_occurrence_ordered,
+  build_toc_from_scan,
   render_toc_pdf,
 )
 
@@ -14,8 +13,7 @@ OUTPUT_PDF = r"C:\dev\vers_with_toc_test.pdf"
 
 doc = fitz.open(INPUT_PDF)
 
-titles = extract_toc_titles(doc)
-items = find_title_occurrence_ordered(doc, titles, start_search_page_index=2)
+items = build_toc_from_scan(doc)
 
 # TOC appended → page numbers unchanged
 for it in items:
